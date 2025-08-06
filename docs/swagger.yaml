@@ -1,0 +1,836 @@
+openapi: 3.0.3
+info:
+  title: SDP → RFC Service API
+  description: |
+    API для сервиса преобразования SDP задач в RFC документы.
+    
+    Сервис позволяет:
+    - Управлять RFC документами
+    - Интегрироваться с SDP трекерами
+    - Работать с GitHub Pull Requests
+    - Генерировать RFC на основе задач
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@sdp-rfc-service.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3001/api
+    description: Development server
+  - url: https://api.sdp-rfc-service.com/api
+    description: Production server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /rfcs:
+    get:
+      summary: Получить список RFC
+      description: Возвращает пагинированный список RFC документов пользователя
+      tags:
+        - RFC Management
+      parameters:
+        - name: page
+          in: query
+          description: Номер страницы
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Количество элементов на странице
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          description: Фильтр по статусу RFC
+          required: false
+          schema:
+            type: string
+            enum: [draft, ready]
+        - name: search
+          in: query
+          description: Поиск по заголовку RFC
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        '200':
+          description: Список RFC успешно получен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RFC'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Создать новый RFC
+      description: Создает новый RFC документ с указанным заголовком
+      tags:
+        - RFC Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRFCRequest'
+      responses:
+        '201':
+          description: RFC успешно создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RFC'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /rfcs/{id}:
+    get:
+      summary: Получить детальные данные RFC
+      description: Возвращает полную информацию о RFC включая связанные задачи и проекты
+      tags:
+        - RFC Management
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор RFC
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Детальные данные RFC
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RFCData'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      summary: Обновить RFC
+      description: Обновляет существующий RFC документ
+      tags:
+        - RFC Management
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор RFC
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRFCRequest'
+      responses:
+        '200':
+          description: RFC успешно обновлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RFCData'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Удалить RFC
+      description: Удаляет RFC документ и все связанные данные
+      tags:
+        - RFC Management
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Уникальный идентификатор RFC
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: RFC успешно удален
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /sdp/fetch:
+    post:
+      summary: Получить данные SDP задачи
+      description: Извлекает информацию о задаче из внешней SDP системы по URL
+      tags:
+        - SDP Integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchSDPRequest'
+      responses:
+        '200':
+          description: Данные SDP задачи успешно получены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SDPTaskData'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Невалидный URL или недоступная задача
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /github/validate-pr:
+    post:
+      summary: Валидировать Pull Request
+      description: Проверяет существование и доступность Pull Request в GitHub
+      tags:
+        - GitHub Integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidatePRRequest'
+      responses:
+        '200':
+          description: Результат валидации PR
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PRValidationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /github/fetch-pr:
+    post:
+      summary: Получить данные Pull Request
+      description: Извлекает детальную информацию о Pull Request из GitHub
+      tags:
+        - GitHub Integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidatePRRequest'
+      responses:
+        '200':
+          description: Данные Pull Request успешно получены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PullRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Невалидный URL или недоступный PR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/login:
+    post:
+      summary: Аутентификация пользователя
+      description: Выполняет вход пользователя и возвращает JWT токен
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                        description: JWT токен для авторизации
+                      user:
+                        $ref: '#/components/schemas/User'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/refresh:
+    post:
+      summary: Обновить токен
+      description: Обновляет JWT токен используя refresh token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string 
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Токен успешно обновлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                        description: Новый JWT токен
+        '401':
+          description: Невалидный refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RFC:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор RFC
+        title:
+          type: string
+          minLength: 3
+          maxLength: 200
+          description: Заголовок RFC документа
+        status:
+          type: string
+          enum: [draft, ready]
+          description: Статус RFC документа
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата и время создания
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата и время последнего обновления
+      required:
+        - id
+        - title
+        - status
+        - createdAt
+        - updatedAt
+
+    RFCData:
+      allOf:
+        - $ref: '#/components/schemas/RFC'
+        - type: object
+          properties:
+            sdpTasks:
+              type: array
+              items:
+                $ref: '#/components/schemas/SDPTask'
+              description: Связанные SDP задачи
+            projects:
+              type: array
+              items:
+                $ref: '#/components/schemas/Project'
+              description: Связанные проекты
+            regressionLink:
+              type: string
+              format: uri
+              description: Ссылка на регрессионное тестирование
+            generatedRFC:
+              type: string
+              description: Сгенерированный текст RFC документа
+
+    SDPTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор задачи
+        url:
+          type: string
+          format: uri
+          description: URL задачи в SDP системе
+        title:
+          type: string
+          description: Заголовок задачи
+        description:
+          type: string
+          description: Описание задачи
+        status:
+          type: string
+          description: Статус задачи
+        assignee:
+          type: string
+          nullable: true
+          description: Назначенный исполнитель
+        created:
+          type: string
+          format: date-time
+          description: Дата создания задачи
+        updated:
+          type: string
+          format: date-time
+          description: Дата последнего обновления задачи
+      required:
+        - id
+        - url
+        - title
+        - description
+        - status
+        - created
+        - updated
+
+    SDPTaskData:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Заголовок задачи
+        description:
+          type: string
+          description: Описание задачи
+        status:
+          type: string
+          description: Текущий статус задачи
+        assignee:
+          type: string
+          nullable: true
+          description: Назначенный исполнитель
+        created:
+          type: string
+          format: date-time
+          description: Дата создания
+        updated:
+          type: string
+          format: date-time
+          description: Дата последнего обновления
+      required:
+        - title
+        - description
+        - status
+        - created
+        - updated
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор проекта
+        name:
+          type: string
+          description: Название проекта
+        repository:
+          type: string
+          format: uri
+          description: URL репозитория GitHub
+        pullRequests:
+          type: array
+          items:
+            $ref: '#/components/schemas/PullRequest'
+          description: Связанные Pull Requests
+      required:
+        - id
+        - name
+        - repository
+        - pullRequests
+
+    PullRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор PR
+        url:
+          type: string
+          format: uri
+          description: URL Pull Request в GitHub
+        repository:
+          type: string
+          description: Название репозитория
+        number:
+          type: string
+          description: Номер Pull Request
+        state:
+          type: string
+          enum: [open, closed, merged]
+          description: Состояние Pull Request
+        author:
+          type: string
+          description: Автор Pull Request
+        title:
+          type: string
+          description: Заголовок Pull Request
+        mergeable:
+          type: boolean
+          nullable: true
+          description: Возможность мержа PR
+      required:
+        - id
+        - url
+        - repository
+        - number
+        - state
+        - author
+        - title
+
+    PRValidationResult:
+      type: object
+      properties:
+        isValid:
+          type: boolean
+          description: Валиден ли PR URL
+        repository:
+          type: string
+          description: Название репозитория
+        number:
+          type: string
+          description: Номер Pull Request
+        state:
+          type: string
+          enum: [open, closed, merged]
+          description: Состояние Pull Request
+        author:
+          type: string
+          description: Автор Pull Request
+        title:
+          type: string
+          description: Заголовок Pull Request
+        mergeable:
+          type: boolean
+          nullable: true
+          description: Возможность мержа PR
+      required:
+        - isValid
+        - repository
+        - number
+        - state
+        - author
+        - title
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор пользователя
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+        name:
+          type: string
+          description: Имя пользователя
+        avatar:
+          type: string
+          format: uri
+          nullable: true
+          description: URL аватара пользователя
+      required:
+        - id
+        - email
+        - name
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          description: Текущая страница
+        limit:
+          type: integer
+          minimum: 1
+          description: Количество элементов на странице
+        total:
+          type: integer
+          minimum: 0
+          description: Общее количество элементов
+        totalPages:
+          type: integer
+          minimum: 0
+          description: Общее количество страниц
+      required:
+        - page
+        - limit
+        - total
+        - totalPages
+
+    CreateRFCRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 200
+          description: Заголовок RFC документа
+      required:
+        - title
+
+    UpdateRFCRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 200
+          description: Новый заголовок RFC
+        status:
+          type: string
+          enum: [draft, ready]
+          description: Новый статус RFC
+        sdpTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/SDPTask'
+          description: Обновленный список SDP задач
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+          description: Обновленный список проектов
+        regressionLink:
+          type: string
+          format: uri
+          nullable: true
+          description: Ссылка на регрессионное тестирование
+        generatedRFC:
+          type: string
+          nullable: true
+          description: Сгенерированный текст RFC
+
+    FetchSDPRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL SDP задачи для извлечения данных
+      required:
+        - url
+
+    ValidatePRRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL Pull Request для валидации
+      required:
+        - url
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+        password:
+          type: string
+          minLength: 6
+          description: Пароль пользователя
+      required:
+        - email
+        - password
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Код ошибки
+        message:
+          type: string
+          description: Описание ошибки
+        statusCode:
+          type: integer
+          description: HTTP статус код
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+      required:
+        - error
+        - message
+        - statusCode
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Переданы некорректные данные"
+            statusCode: 400
+            details:
+              field: "title"
+              reason: "Поле обязательно для заполнения"
+
+    Unauthorized:
+      description: Не авторизован
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Требуется авторизация"
+            statusCode: 401
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "NOT_FOUND"
+            message: "RFC с указанным ID не найден"
+            statusCode: 404
+
+    InternalServerError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_ERROR"
+            message: "Произошла внутренняя ошибка сервера"
+            statusCode: 500
+
+tags:
+  - name: RFC Management
+    description: Операции управления RFC документами
+  - name: SDP Integration
+    description: Интеграция с SDP системами трекинга задач
+  - name: GitHub Integration
+    description: Интеграция с GitHub API для работы с Pull Requests
+  - name: Authentication
+    description: Аутентификация и авторизация пользователей
